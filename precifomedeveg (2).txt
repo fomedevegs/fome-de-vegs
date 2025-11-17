@@ -1,8 +1,10 @@
 <!-- Chosen Palette: Paleta Minimalista (Neutros Quentes com Toque de Verde) -->
 <!-- Application Structure Plan: Dashboard de duas colunas (Desktop) / Coluna única (Mobile). A coluna da esquerda serve como Painel de Controle (inputs de Receita e Banco de Dados), e a coluna da di[...]
 <!-- Visualization & Content Choices: Summary: BD Ingredientes -> Goal: Inform/Organize -> Viz/Presentation Method: Tabela Interativa (HTML/Tailwind) -> Interaction: Edição direta e cálculo automá[...]
-<!DOCTYPE html>
-<html lang="pt-BR">
+<!DOCTYPE https>
+
+<https lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
