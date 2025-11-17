@@ -1,0 +1,445 @@
+[precifomedeveg.txt](https://github.com/user-attachments/files/23591186/precifomedeveg.txt)
+<!-- Chosen Palette: Paleta Minimalista (Neutros Quentes com Toque de Verde) -->
+<!-- Application Structure Plan: Dashboard de duas colunas (Desktop) / Coluna única (Mobile). A coluna da esquerda serve como Painel de Controle (inputs de Receita e Banco de Dados), e a coluna da direita serve como Painel de Análise (Key Metrics e Visualização Gráfica do Breakdown de Custos). Esta estrutura foi escolhida para permitir que o usuário gerencie dados e veja os resultados instantaneamente, facilitando a tomada de decisão sobre precificação. -->
+<!-- Visualization & Content Choices: Summary: BD Ingredientes -> Goal: Inform/Organize -> Viz/Presentation Method: Tabela Interativa (HTML/Tailwind) -> Interaction: Edição direta e cálculo automático do Custo Unitário (JS) -> Justification: Tabela é ideal para gestão de dados de custo unitário. | Summary: Breakdown de Custos (CM, MO, CF, Lucro) -> Goal: Compare/Inform -> Viz/Presentation Method: Gráfico de Rosca (Donut - Chart.js/Canvas) -> Interaction: Atualização dinâmica ao mudar a receita/margem (JS) -> Justification: Visualiza claramente a alocação de cada real do preço final. | Library/Method: Chart.js para gráficos, Vanilla JS para toda a lógica e interatividade. CONFIRMING: NO SVG/Mermaid. -->
+<!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Custos Fome de Vegs</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f7f5; }
+        .tab-content { display: none; }
+        .tab.active { border-bottom: 2px solid #38a169; color: #10b981; font-weight: 600; }
+        .metric-card { transition: all 0.3s ease-in-out; }
+        .chart-container { position: relative; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; height: 300px; max-height: 45vh; }
+        @media (min-width: 768px) {
+            .chart-container { height: 400px; max-height: 45vh; }
+        }
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <header class="mb-8">
+        <h1 class="text-4xl font-extrabold text-gray-800 mb-2">🌱 Fome de Vegs: Precificação Interativa</h1>
+        <p class="text-gray-600">Seu painel de controle para calcular custos de receitas e otimizar margens.</p>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <!-- PAINEL DE CONTROLE (Inputs e Configurações) -->
+        <div class="md:col-span-2 space-y-8">
+
+            <!-- Seção de Navegação (Tabs) -->
+            <div class="flex border-b border-gray-200">
+                <button id="tab-receita" class="tab active px-4 py-2 text-sm text-gray-600 transition duration-150 ease-in-out hover:text-green-500">
+                    Calculadora de Receita
+                </button>
+                <button id="tab-bd" class="tab px-4 py-2 text-sm text-gray-600 transition duration-150 ease-in-out hover:text-green-500">
+                    Banco de Dados de Ingredientes
+                </button>
+            </div>
+
+            <!-- Conteúdo da Tab: Calculadora de Receita -->
+            <div id="content-receita" class="tab-content block bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Detalhes da Receita</h2>
+                <p class="text-sm text-gray-500 mb-4">Insira o rendimento total e os ingredientes. O custo unitário é puxado automaticamente do Banco de Dados.</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label for="recipe-name" class="block text-sm font-medium text-gray-700">Nome do Produto</label>
+                        <input type="text" id="recipe-name" value="Bolo de Chocolate Vegano" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 bg-gray-50 border" oninput="updateCalculations()">
+                    </div>
+                    <div>
+                        <label for="recipe-yield" class="block text-sm font-medium text-gray-700">Rendimento Total (gramas)</label>
+                        <input type="number" id="recipe-yield" value="1500" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 bg-gray-50 border" oninput="updateCalculations()">
+                    </div>
+                </div>
+
+                <h3 class="text-xl font-medium text-gray-700 mb-3 mt-6">Ingredientes Utilizados</h3>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ingrediente</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qtde (g/ml)</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Custo Unit. (R$)</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Custo Total (R$)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recipe-items-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Linhas da receita serão injetadas aqui -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <button onclick="addRecipeItem()" class="mt-4 px-4 py-2 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 transition duration-200">
+                    + Adicionar Ingrediente
+                </button>
+            </div>
+
+            <!-- Conteúdo da Tab: Banco de Dados de Ingredientes -->
+            <div id="content-bd" class="tab-content bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Banco de Dados (Custos Unitários)</h2>
+                <p class="text-sm text-gray-500 mb-4">Gerencie o custo da embalagem e o tamanho para calcular o Custo por Unidade (R\$/g ou R\$/ml).</p>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ingrediente</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Embalagem (g/ml)</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Custo Emb. (R$)</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-green-600 uppercase tracking-wider">Custo Unitário (R$)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bd-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Itens do BD serão injetados aqui -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- PAINEL DE ANÁLISE (Resultados e Gráficos) -->
+        <div class="md:col-span-1 space-y-6">
+
+            <!-- Cartões de Métricas Chave -->
+            <div class="bg-white p-6 rounded-xl shadow-lg sticky top-8">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Análise de Preço</h2>
+
+                <div class="space-y-4">
+                    <div class="metric-card p-3 bg-gray-50 rounded-lg shadow-sm">
+                        <p class="text-sm font-medium text-gray-500">Custo Total Matéria-Prima (CM)</p>
+                        <p id="cm-output" class="text-2xl font-bold text-red-600">R$ 0,00</p>
+                    </div>
+
+                    <div class="metric-card p-3 bg-gray-50 rounded-lg shadow-sm">
+                        <p class="text-sm font-medium text-gray-500">Custo Total do Produto (CT)</p>
+                        <p id="ct-output" class="text-2xl font-bold text-orange-600">R$ 0,00</p>
+                    </div>
+
+                    <div class="metric-card p-3 bg-gray-100 rounded-lg shadow-md border-l-4 border-green-500">
+                        <p class="text-sm font-medium text-gray-700">Preço de Venda Sugerido (PV)</p>
+                        <p id="pv-output" class="text-3xl font-extrabold text-green-700">R$ 0,00</p>
+                    </div>
+
+                    <div class="metric-card p-3 bg-green-50 rounded-lg shadow-sm">
+                        <p class="text-sm font-medium text-gray-600">Preço de Venda por Grama</p>
+                        <p id="price-per-gram-output" class="text-xl font-bold text-green-600">R$ 0,0000</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 border-t pt-4">
+                    <label for="margin-rate" class="block text-sm font-medium text-gray-700">Margem de Lucro (% sobre CT)</label>
+                    <input type="number" id="margin-rate" value="100" min="1" max="500" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 bg-gray-50 border" oninput="updateCalculations()">
+                </div>
+                <div class="mt-3">
+                    <label for="labor-rate" class="block text-sm font-medium text-gray-700">Custo Mão de Obra (% sobre CM)</label>
+                    <input type="number" id="labor-rate" value="30" min="0" max="100" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 bg-gray-50 border" oninput="updateCalculations()">
+                </div>
+                <div class="mt-3">
+                    <label for="fixed-rate" class="block text-sm font-medium text-gray-700">Custo Fixo (% sobre CM)</label>
+                    <input type="number" id="fixed-rate" value="20" min="0" max="100" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 bg-gray-50 border" oninput="updateCalculations()">
+                </div>
+            </div>
+
+            <!-- Gráfico de Breakdown de Custos -->
+            <div class="bg-white p-6 rounded-xl shadow-lg mt-6">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Distribuição de Custos e Lucro</h3>
+                <div class="chart-container">
+                    <canvas id="costBreakdownChart"></canvas>
+                </div>
+                <p class="text-xs text-gray-500 mt-4">Visualização percentual de como o preço de venda é composto (Matéria-Prima, Operação e Lucro).</p>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- DATA INICIAL (Baseado na Planilha) ---
+        let INGREDIENTS_DATA = [
+            { id: 1, name: "Farinha de Trigo (Sem Fermento)", size: 1000, cost: 5.50, unit: 'g' },
+            { id: 2, name: "Farinha de Trigo (Com Fermento)", size: 1000, cost: 6.80, unit: 'g' },
+            { id: 3, name: "Açúcar Cristal", size: 2000, cost: 9.90, unit: 'g' },
+            { id: 4, name: "Açúcar Mascavo", size: 500, cost: 6.50, unit: 'g' },
+            { id: 5, name: "Sal Marinho", size: 1000, cost: 4.20, unit: 'g' },
+            { id: 6, name: "Bicarbonato de Sódio", size: 200, cost: 3.00, unit: 'g' },
+            { id: 7, name: "Óleo de Girassol", size: 900, cost: 12.50, unit: 'ml' },
+            { id: 8, name: "Leite de Aveia (Em Pó)", size: 400, cost: 28.00, unit: 'g' },
+            { id: 9, name: "Fermento Biológico Seco", size: 10, cost: 2.20, unit: 'g' },
+            { id: 10, name: "Fermento Químico", size: 100, cost: 5.80, unit: 'g' },
+            { id: 11, name: "Cacau em Pó 100%", size: 250, cost: 15.00, unit: 'g' },
+            { id: 12, name: "Chocolate Meio Amargo em Barra", size: 1000, cost: 35.00, unit: 'g' },
+            { id: 13, name: "Chocolate 100% (Livre APLV)", size: 500, cost: 45.00, unit: 'g' },
+            { id: 14, name: "Manteiga Vegetal", size: 500, cost: 18.00, unit: 'g' },
+            { id: 15, name: "Baunilha (Extrato)", size: 60, cost: 10.00, unit: 'ml' }
+        ];
+        
+        // Estrutura da receita inicial
+        let recipeItems = [
+            { id: 1, ingredientName: "Farinha de Trigo (Sem Fermento)", quantity: 300 },
+            { id: 2, ingredientName: "Açúcar Cristal", quantity: 250 },
+            { id: 3, ingredientName: "Cacau em Pó 100%", quantity: 50 },
+            { id: 4, ingredientName: "Leite de Aveia (Em Pó)", quantity: 150 },
+            { id: 5, ingredientName: "Óleo de Girassol", quantity: 120 },
+            { id: 6, ingredientName: "Fermento Químico", quantity: 10 },
+        ];
+        
+        let nextRecipeItemId = recipeItems.length + 1;
+        let costChart;
+
+        // --- FUNÇÕES DE LÓGICA ---
+
+        function getUnitCost(ingredientName) {
+            const item = INGREDIENTS_DATA.find(i => i.name === ingredientName);
+            if (!item || item.size <= 0) return 0;
+            return item.cost / item.size;
+        }
+
+        function calculateCosts() {
+            const yieldGrams = parseFloat(document.getElementById('recipe-yield').value) || 0;
+            const laborRate = (parseFloat(document.getElementById('labor-rate').value) || 0) / 100;
+            const fixedRate = (parseFloat(document.getElementById('fixed-rate').value) || 0) / 100;
+            const marginRate = (parseFloat(document.getElementById('margin-rate').value) || 0) / 100;
+            
+            let totalCM = 0; // Custo de Matéria-Prima
+
+            recipeItems.forEach(item => {
+                const unitCost = getUnitCost(item.ingredientName);
+                item.costTotal = item.quantity * unitCost;
+                totalCM += item.costTotal;
+            });
+
+            // Fórmulas baseadas na planilha:
+            const totalMO = totalCM * laborRate; // Custo Mão de Obra
+            const totalCF = totalCM * fixedRate; // Custo Fixo
+            const totalCT = totalCM + totalMO + totalCF; // Custo Total do Produto
+            const totalProfit = totalCT * marginRate; // Margem de Lucro
+            const totalPV = totalCT + totalProfit; // Preço de Venda Sugerido
+            const pricePerGram = yieldGrams > 0 ? totalPV / yieldGrams : 0;
+
+            return { totalCM, totalMO, totalCF, totalCT, totalPV, totalProfit, pricePerGram };
+        }
+
+        function formatCurrency(value, decimalPlaces = 2) {
+            return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: decimalPlaces });
+        }
+        
+        // --- FUNÇÕES DE RENDERIZAÇÃO ---
+        
+        function renderBDTable() {
+            const tbody = document.getElementById('bd-table-body');
+            tbody.innerHTML = '';
+
+            INGREDIENTS_DATA.forEach(item => {
+                const unitCost = getUnitCost(item.name);
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td class="px-3 py-2 text-sm font-medium text-gray-900">${item.name}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        <input type="number" data-id="${item.id}" data-field="size" value="${item.size}" min="1" class="w-20 rounded-md border-gray-300 shadow-sm text-sm p-1 text-center bg-gray-50 border" oninput="updateBDItem(this)">
+                        <span class="text-xs text-gray-500"> ${item.unit}</span>
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        <input type="number" data-id="${item.id}" data-field="cost" value="${item.cost.toFixed(2)}" min="0.01" step="0.01" class="w-20 rounded-md border-gray-300 shadow-sm text-sm p-1 text-center bg-gray-50 border" oninput="updateBDItem(this)">
+                    </td>
+                    <td class="px-3 py-2 text-sm font-bold text-green-700">${formatCurrency(unitCost, 4)}</td>
+                `;
+            });
+        }
+        
+        function renderRecipeTable() {
+            const tbody = document.getElementById('recipe-items-body');
+            tbody.innerHTML = '';
+
+            const ingredientOptions = INGREDIENTS_DATA.map(i => `<option value="${i.name}">${i.name}</option>`).join('');
+
+            recipeItems.forEach(item => {
+                const unitCost = getUnitCost(item.ingredientName);
+                const costTotal = item.costTotal || 0;
+                
+                const row = tbody.insertRow();
+                row.setAttribute('data-item-id', item.id);
+                row.innerHTML = `
+                    <td class="px-3 py-2 text-sm">
+                        <select data-id="${item.id}" class="w-full rounded-md border-gray-300 shadow-sm text-sm p-1 bg-gray-50 border" onchange="updateRecipeItem(this)">
+                            <option value="">Selecione Ingrediente</option>
+                            ${ingredientOptions}
+                        </select>
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        <input type="number" data-id="${item.id}" data-field="quantity" value="${item.quantity || ''}" min="0" class="w-20 rounded-md border-gray-300 shadow-sm text-sm p-1 text-center bg-gray-50 border" oninput="updateRecipeItem(this)">
+                    </td>
+                    <td class="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">${formatCurrency(unitCost, 4)}</td>
+                    <td class="px-3 py-2 text-sm font-medium text-red-600 whitespace-nowrap">${formatCurrency(costTotal)}</td>
+                    <td class="px-1 py-2 text-center">
+                        <button onclick="removeRecipeItem(${item.id})" class="text-red-400 hover:text-red-600 text-lg">🗑️</button>
+                    </td>
+                `;
+                
+                // Set the correct selected ingredient in the dropdown
+                row.querySelector('select').value = item.ingredientName;
+            });
+        }
+
+        function updateMetrics(costs) {
+            document.getElementById('cm-output').textContent = formatCurrency(costs.totalCM);
+            document.getElementById('ct-output').textContent = formatCurrency(costs.totalCT);
+            document.getElementById('pv-output').textContent = formatCurrency(costs.totalPV);
+            document.getElementById('price-per-gram-output').textContent = formatCurrency(costs.pricePerGram, 4);
+
+            updateChart(costs);
+        }
+
+        function updateChart(costs) {
+            const marginRate = (parseFloat(document.getElementById('margin-rate').value) || 0) / 100;
+            const profit = costs.totalCT * marginRate;
+
+            const data = [
+                costs.totalCM, 
+                costs.totalMO, 
+                costs.totalCF, 
+                profit
+            ];
+
+            const labels = [
+                'Matéria-Prima (' + formatCurrency(costs.totalCM) + ')',
+                'Mão de Obra (' + formatCurrency(costs.totalMO) + ')',
+                'Custo Fixo (' + formatCurrency(costs.totalCF) + ')',
+                'Margem de Lucro (' + formatCurrency(profit) + ')'
+            ];
+
+            if (costChart) {
+                costChart.data.labels = labels;
+                costChart.data.datasets[0].data = data;
+                costChart.update();
+            } else {
+                const ctx = document.getElementById('costBreakdownChart').getContext('2d');
+                costChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: ['#f87171', '#fbbf24', '#a78bfa', '#10b981'],
+                            hoverOffset: 8
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '70%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    usePointStyle: true,
+                                    padding: 20
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        label += formatCurrency(context.parsed, 2);
+                                        return label;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // --- FUNÇÕES DE INTERAÇÃO (Handers) ---
+
+        function updateCalculations() {
+            const costs = calculateCosts();
+            renderRecipeTable(); // Atualiza a tabela da receita com os novos custos totais
+            updateMetrics(costs);
+            renderBDTable(); // Garantir que o BD sempre mostre o custo unitário atualizado
+        }
+
+        function updateBDItem(inputElement) {
+            const id = parseInt(inputElement.dataset.id);
+            const field = inputElement.dataset.field;
+            const value = parseFloat(inputElement.value);
+
+            const itemIndex = INGREDIENTS_DATA.findIndex(i => i.id === id);
+            if (itemIndex !== -1 && !isNaN(value) && value >= 0) {
+                INGREDIENTS_DATA[itemIndex][field] = value;
+                updateCalculations();
+            }
+        }
+        
+        function updateRecipeItem(inputElement) {
+            const id = parseInt(inputElement.dataset.id);
+            const field = inputElement.dataset.field || 'ingredientName';
+            const value = inputElement.value;
+            
+            const itemIndex = recipeItems.findIndex(i => i.id === id);
+            if (itemIndex !== -1) {
+                if (field === 'quantity') {
+                    const quantity = parseFloat(value);
+                    recipeItems[itemIndex][field] = isNaN(quantity) ? 0 : quantity;
+                } else {
+                    recipeItems[itemIndex][field] = value;
+                }
+                updateCalculations();
+            }
+        }
+
+        function addRecipeItem() {
+            recipeItems.push({ 
+                id: nextRecipeItemId++, 
+                ingredientName: INGREDIENTS_DATA[0] ? INGREDIENTS_DATA[0].name : '', 
+                quantity: 0 
+            });
+            updateCalculations();
+        }
+
+        function removeRecipeItem(id) {
+            recipeItems = recipeItems.filter(item => item.id !== id);
+            updateCalculations();
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            document.getElementById(`content-${tabName}`).style.display = 'block';
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
+        // --- INICIALIZAÇÃO ---
+        window.onload = function() {
+            document.getElementById('tab-receita').addEventListener('click', () => switchTab('receita'));
+            document.getElementById('tab-bd').addEventListener('click', () => switchTab('bd'));
+            
+            // Renderiza o BD e a Receita, e executa o cálculo inicial
+            renderBDTable();
+            updateCalculations();
+            
+            // Garante que a primeira aba esteja ativa
+            switchTab('receita');
+        };
+    </script>
+</body>
+
+</html>
